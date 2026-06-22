@@ -1,0 +1,14 @@
+# Compiled Python
+__pycache__/
+*.py[cod]
+
+# Community strategies we downloaded (not ours)
+temp_community/
+BinHV45.py
+CombinedBinHAndCluc.py
+BbandRsi.py
+
+# Freqtrade generated files
+*.sqlite
+*.json.bak
+hyperopt_results/
