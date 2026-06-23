@@ -2,11 +2,18 @@
 __pycache__/
 *.py[cod]
 
-# Community strategies we downloaded (not ours)
+# Community strategies (not ours)
 temp_community/
 BinHV45.py
 CombinedBinHAndCluc.py
 BbandRsi.py
+
+# Old unversioned strategy files (replaced by timestamped versions)
+EMAcross.py
+MeanReversion.py
+DCAStrategy.py
+BreakoutDetector.py
+BinHV45_Regime.py
 
 # Freqtrade generated files
 *.sqlite

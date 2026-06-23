@@ -5,76 +5,76 @@ Custom trading strategies for [Freqtrade](https://github.com/freqtrade/freqtrade
 ## Setup
 
 All strategies expect Freqtrade running with:
-- **Timeframe:** 4h
 - **Exchange:** Bybit (spot)
-- **Pairs:** 18 major USDT pairs via VolumePairList
+- **Pairs:** 18–40 major USDT pairs
 - **Stake:** unlimited (auto-sized per trade)
 
-## Strategies
+---
 
-### `EMAcross.py` — Trend Following
-**Best overall. Profitable in both bull and bear markets.**
+## Active Strategy
 
-- Enters when the 20 EMA crosses above the 50 EMA with RSI confirmation
-- Regime-gated: only trades in confirmed BULL market conditions
-- Exits via ROI targets (4%→3%→2%→1%) or 5% stoploss
-- Backtest: +8.4% bull (Oct24–Oct25), -0.7% bear (Oct25–Jun26), max drawdown ~4%
+### `BinHV45_Regime_5m.py` ⭐ CURRENT LIVE BOT
+**Best overall. +13.83% in pure bear market (Dec 2025–Jun 2026), 95.3% win rate.**
 
-### `DCAStrategy.py` — Bull Market Accumulator
-**Best bull market strategy. Sits out entirely in bear markets.**
+- **Timeframe:** 5m
+- Based on the proven BinHV45 community algorithm
+- Adds a 1h regime informer — blocks entries only during confirmed BEAR conditions
+- Entry: sharp capitulation drop below 40-period Bollinger Band lower with volume confirmation
+- Exit: 1.25% ROI target
+- Stoploss: -5%
+- Backtest (Dec 2025–Jun 2026, 40 pairs, bear market): +13.83%, 192 trades, 95.3% win rate, 2.32% max drawdown
 
-- Enters on pullbacks (RSI < 50, price below EMA20) in confirmed BULL regime
-- Adds to position at -3%, -6%, -10% drops (safety orders)
-- Stake capped at 4x initial to limit max exposure
-- Backtest: +25.9% bull, 0 trades bear, 98% win rate
+---
 
-### `MeanReversion.py` — Ranging Market Strategy
-**Designed for sideways markets. Parks itself in trending conditions.**
+## Supporting Strategies
 
-- Enters when price touches lower Bollinger Band (20-period, 2std) with RSI oversold
-- Regime-gated: only trades in RANGING conditions (ADX 12–25, price within 15% of 200 EMA)
-- Exits via ROI or 5% stoploss (no exit signal — avoids whipsaw)
-- Backtest: -5.3% bear, needs clean ranging period to validate properly
+### `EMAcross_4h.py`
+- **Timeframe:** 4h
+- Trend following: 20 EMA crosses above 50 EMA with RSI confirmation
+- BULL regime only
+- Backtest: +8.4% bull, -0.7% bear, 3.95% max drawdown
 
-### `BreakoutDetector.py` — Bear-to-Bull Transition Signal
-**Not a trading strategy — a market analysis tool.**
+### `DCAStrategy_4h.py`
+- **Timeframe:** 4h
+- Systematic accumulation on pullbacks in BULL regime only
+- Safety orders at -3%, -6%, -10% with 4x stake cap
+- Backtest: +25.9% bull, 0 trades bear
 
-- Runs on 1d candles, generates signals when 5+ of 7 breakout conditions align
-- Conditions: 200 EMA reclaim, golden cross, RSI > 50, volume spike, consolidation breakout, ADX trending, MACD turning positive
-- Use to time activation of DCAStrategy at the start of a bull run
+### `MeanReversion_4h.py`
+- **Timeframe:** 4h
+- Bollinger Band oversold bounces in RANGING regime only
+- Backtest: -5.3% bear (best suited to genuine sideways markets)
+
+### `BreakoutDetector_1d.py`
+- **Timeframe:** 1d
+- Market analysis tool — not a trading strategy
+- Signals bear-to-bull transitions when 5 of 7 conditions align
+- Use to time activation of DCAStrategy_4h
+
+---
 
 ## Shared Module
 
 ### `regime_filter.py`
-Imported by all strategies. Classifies each candle as BULL, EARLY_BULL, BEAR, RANGING, or UNKNOWN based on:
-- Price vs 200 EMA
-- 50/200 EMA relationship
-- RSI direction
-- ADX strength
+Imported by all strategies. Classifies each candle as BULL, EARLY_BULL, BEAR, RANGING, or UNKNOWN.
+
+---
 
 ## Backtesting
 
 ```bash
-# Bull period
+# BinHV45_Regime_5m — bear period
 docker compose run --rm freqtrade backtesting \
-  --config user_data/config_backtest.json \
-  --strategy-list EMAcross DCAStrategy MeanReversion \
-  --timerange 20241001-20251001 -i 4h
+  --config user_data/config_backtest_5m.json \
+  --strategy BinHV45_Regime_5m \
+  --timerange 20251225-20260601 -i 5m
 
-# Bear period
+# 4h strategies — bull period
 docker compose run --rm freqtrade backtesting \
   --config user_data/config_backtest.json \
-  --strategy-list EMAcross DCAStrategy MeanReversion \
-  --timerange 20251001-20260601 -i 4h
+  --strategy-list EMAcross_4h DCAStrategy_4h MeanReversion_4h \
+  --timerange 20241001-20251001 -i 4h
 ```
 
-## Notes
-
-- All strategies import `regime_filter.py` — keep it in the same folder
-- `config_backtest.json` uses StaticPairList (required for backtesting)
-- `config.json` uses VolumePairList (for live/dry-run)
-- Never run DCAStrategy without the regime filter — it will average down into bear markets indefinitely
-
 ## Disclaimer
-
 For educational and research purposes. Not financial advice. Always run dry-run before live trading.
