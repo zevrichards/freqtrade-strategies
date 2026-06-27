@@ -238,3 +238,72 @@ Active pairs: BTC, ETH, HYPE, SOL, XRP, AAVE, WLD, MNT, INJ, ENA, AVAX, ASTER, L
 
 Expected trade frequency at 16 pairs: ~0.35/day (roughly 1 trade every 3 days).
 This is low but acceptable during dry-run validation. Will improve when market stabilises and more pairs pass the filters.
+
+
+---
+
+### LESSON 11: RSI Divergence Is Too Rare on 5m to Be a Useful Gate
+
+**What we tried:** Added RSI bullish divergence as a 5m entry filter in v2.
+Condition: close < close(3 candles ago) AND RSI > RSI(3 candles ago).
+
+**What happened:** Isolation backtest showed RSI divergence blocked 99% of entries.
+- RSI divergence only: 3 trades over 6 months
+- Both filters (downtrend + RSI divergence): 3 trades (same 3)
+- Downtrend filter only: 314 trades
+
+**Why it failed:** RSI bullish divergence is a reliable signal on 4h and daily charts
+where candles represent meaningful price action over hours or days. On 5m candles,
+the 3-candle lookback covers only 15 minutes. In that window, RSI rarely diverges
+from price during a genuine capitulation — both tend to fall together in the sharp
+drop that BinHV45 is designed to catch, then RSI recovers after the entry, not before.
+The condition was filtering out the exact moves we wanted to buy.
+
+**Fix:** Removed RSI divergence from BinHV45_Regime_5m entirely.
+
+**Rule established:** RSI divergence works as a filter on 4h+ timeframes.
+On 5m, use price action (BB position, candle characteristics) for entry confirmation.
+
+---
+
+### LESSON 12: -3% Stop / +2% ROI Dramatically Improves BinHV45 Performance
+
+**Backtest comparison (Dec 2025 – Jun 2026, 40 pairs, bear market):**
+
+| Strategy | Trades | Win% | Total return | Drawdown |
+|---|---|---|---|---|
+| BinHV45 original (-5% / +1.25%) | 113 | 83.2% | +$87 (+1.74%) | $229 (4.41%) |
+| Downtrend only (-3% / +2%) | 314 | 74.5% | +$1,126 (+22.53%) | $243 (4.13%) |
+
+Win rate dropped from 83.2% to 74.5% — but total profit increased 13x.
+
+**Why the math works despite lower win rate:**
+- Old break-even win rate: 80% (1.25% win vs 5% loss = 4:1 ratio)
+- New break-even win rate: 60% (2% win vs 3% loss = 1.5:1 ratio)
+- At 74.5% win rate: far above 60% break-even, large profit buffer
+- Each stop loss costs 60% less ($14 vs $26)
+- Each win earns 60% more ($9.50 vs $6.88)
+
+**Rule established:** For scalping strategies with high trade frequency,
+a tighter stop + higher ROI target (closer to 1:1 ratio) beats a wide stop + small target.
+The key metric is the risk/reward ratio relative to the win rate.
+Break-even win rate = stop_loss / (ROI + stop_loss).
+Always verify: actual win rate >> break-even win rate.
+
+---
+
+### LESSON 13: Isolate Filters Before Combining Them
+
+**Method used:** Created separate test strategies for each filter in isolation:
+- BinHV45_Downtrend_5m (downtrend filter only)
+- BinHV45_RSIDivergence_5m (RSI divergence only)
+- BinHV45_Regime_5m_test (both filters, new parameters)
+
+Ran all three in a single backtesting command against the control (BinHV45 original).
+
+**Value:** Immediately revealed RSI divergence was the bottleneck. Without isolation,
+we would have assumed "both filters" were working together and kept both.
+
+**Rule established:** When adding multiple filters to a strategy, always backtest
+each filter in isolation before combining. This takes 30 minutes and prevents
+weeks of dry-run data being wasted on an over-filtered strategy.
