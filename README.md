@@ -9,28 +9,33 @@ See [INTELLIGENCE_REPORT.md](./INTELLIGENCE_REPORT.md) for accumulated lessons, 
 ## Active Strategy
 
 ### `BinHV45_Regime_5m.py` ⭐ CURRENT LIVE BOT
-**Best overall performer. +13.83% in pure bear market backtest. Currently dry-running.**
+**Best overall performer. +22.53% in pure bear market backtest (314 trades). Currently dry-running.**
 
 - **Timeframe:** 5m (with 1h and 30m informers)
-- **Pairs:** Top 40 by USDT volume (quality-filtered)
+- **Pairs:** Top 40 by USDT volume (quality-filtered, $1M+ daily volume, 30+ days listed)
 - **Based on:** BinHV45 community algorithm
-- **Entry:** Sharp capitulation drop below 40-period Bollinger Band lower, with RSI bullish divergence confirmation
-- **Exit:** 1.25% ROI target or -5% stop loss
+- **Entry:** Sharp capitulation drop below 40-period Bollinger Band lower
+- **Exit:** +2% ROI target or -3% stop loss
 - **Regime protection:** 1h informer blocks entries in confirmed BEAR market
 - **Downtrend protection:** 30m informer blocks entries when the individual pair is in its own downtrend
 - **Re-entry protection:** CooldownPeriod (12 candles) + StoplossGuard (2 losses in 24 candles → 4h block)
 
 #### Version History
 
-**v2 (current) — June 26, 2026**
+**v3 (current) — June 27, 2026**
+- Removed RSI bullish divergence check — backtest isolation proved it blocked 99% of valid entries (3 trades vs 314 with downtrend filter only). RSI divergence works on 4h+ but not as a 5m gate.
+- Tightened stop loss: -5% → -3% (break-even win rate drops from 80% to 60%)
+- Raised ROI target: +1.25% → +2% (each win earns 60% more)
+- **Backtest result:** +22.53% over 6 months pure bear market, 314 trades, 74.5% win rate, 4.13% max drawdown
+
+**v2 — June 26, 2026**
 - Added 30m pair-level downtrend filter — blocks entry if pair's own 30m chart shows lower lows
-- Added RSI bullish divergence check — price lower than 3 candles ago, RSI higher
+- Added RSI bullish divergence check — price lower than 3 candles ago, RSI higher (later removed in v3)
 - Added CooldownPeriod protection — 12 candle block after any stop loss on a pair
 - Added StoplossGuard protection — 2 losses on same pair in 24 candles triggers 4h block
-- Expanded blacklist: POPCAT, PUMP, IP, HOODX, XPL, `.*X/USDT` wildcard
-- Raised min_value to $10M daily volume on VolumePairList
-- Tightened RangeStabilityFilter max from 50% to 35%
-- **Reason:** Live trading showed 5 stop losses nearly cancelling 21 ROI wins. Root cause was POPCAT re-entry and downtrend misclassification as capitulation.
+- Expanded blacklist: POPCAT, PUMP, IP, HOODX, XPL
+- Raised min_value to $10M, tightened RangeStabilityFilter to 35% (later relaxed in config)
+- **Problem discovered:** RSI divergence + downtrend together blocked 99% of entries (3 trades in 6 months)
 
 **v1 — June 23, 2026**
 - Initial deployment with 1h regime filter only
@@ -157,9 +162,9 @@ Imported by all 4h strategies. Classifies each candle as BULL, EARLY_BULL, BEAR,
 
 | Filter | Setting | Purpose |
 |---|---|---|
-| VolumePairList | Top 40, min $10M daily USDT | Only established liquid coins |
+| VolumePairList | Top 40, min $1M daily USDT | Only established liquid coins |
 | AgeFilter | 30+ days listed | Exclude new/unknown tokens |
-| RangeStabilityFilter | 2%–35% change over 10 days | Exclude dead coins and extreme pumps |
+| RangeStabilityFilter | 1%–70% change over 10 days | Exclude dead coins and extreme pumps |
 | PrecisionFilter | Auto | Exclude bad tick sizes |
 | PriceFilter | Min 1% move | Exclude dust coins |
 | SpreadFilter | Max 0.5% spread | Exclude illiquid pairs |
@@ -171,26 +176,41 @@ Imported by all 4h strategies. Classifies each candle as BULL, EARLY_BULL, BEAR,
 ## Backtesting
 
 ```bash
-# BinHV45_Regime_5m — use 5m config
+# BinHV45_Regime_5m — current live strategy (requires 5m, 30m, 1h data)
 docker compose run --rm freqtrade backtesting \
   --config user_data/config_backtest_5m.json \
   --strategy BinHV45_Regime_5m \
-  --timerange 20251225-20260601 -i 5m
+  --timerange 20251225-20260620 -i 5m
 
-# 4h strategies — use 4h config
+# Compare all 5m variants side by side
+docker compose run --rm freqtrade backtesting \
+  --config user_data/config_backtest_5m.json \
+  --strategy-list BinHV45 BinHV45_Regime_5m BinHV45_Downtrend_5m BinHV45_RSIDivergence_5m \
+  --timerange 20251225-20260620 -i 5m
+
+# 4h strategies — bull and bear periods
 docker compose run --rm freqtrade backtesting \
   --config user_data/config_backtest.json \
   --strategy-list EMAcross_4h DCAStrategy_4h MeanReversion_4h \
   --timerange 20241001-20251001 -i 4h
 ```
 
-**Note:** BinHV45_Regime_5m requires 5m, 30m, and 1h data downloaded for all pairs before backtesting.
-
+**Data download (run before backtesting):**
 ```bash
+# 5m strategies need 5m, 30m, and 1h data
 docker compose run --rm freqtrade download-data \
   --config user_data/config_backtest_5m.json \
   --exchange bybit --days 180 -t 5m 30m 1h
+
+# 4h strategies need 4h data
+docker compose run --rm freqtrade download-data \
+  --config user_data/config_backtest.json \
+  --exchange bybit --days 730 -t 4h --prepend
 ```
+
+**Configs:**
+- `config_backtest_5m.json` — 40 pairs, StaticPairList, no global stoploss override
+- `config_backtest.json` — 18 pairs, StaticPairList, 4h strategies
 
 ---
 
