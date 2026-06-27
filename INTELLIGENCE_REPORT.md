@@ -192,3 +192,49 @@ Directly prevents POPCAT-style repeated re-entry after losses.
 6. **MeanReversion_4h** — Never tested in a genuine ranging market. 2024-2026 data was either bull or bear. Need a sideways period to validate.
 
 7. **VPS migration** — Bot is running on a home Windows PC. Needs move to Linux VPS for 24/7 reliability and live trading readiness.
+
+---
+
+### LESSON 8: Wildcard Blacklist Patterns Can Be Too Broad
+
+**What happened:** Added `.*X/USDT` wildcard to blacklist to catch tokenised stock pairs (HOODX, COINX, NVDAX, etc.)
+
+**Unintended consequence:** The regex matched ANY pair containing X anywhere in the ticker — eliminating XRP/USDT, AAVE/USDT, LINK/USDT, and many other legitimate high-volume coins. Pair count dropped from 40 to 5. Zero trades in 16 hours.
+
+**Fix:** Replaced wildcard with explicit named blacklist of known bad coins: NVDAX, NAVX, CRCLX, COINX, SPCXX, MPLX, MBX, MBOX, HTX, ZRX, WEMIX, APEX, ICX, GMX, SNX, DYDX, SPX.
+
+**Rule established:** Never use broad regex wildcards against the ticker body. Only use them for suffix/prefix patterns that are structurally reliable:
+- `.*UP/USDT` — safe (suffix only)
+- `.*DOWN/USDT` — safe
+- `.*X/USDT` — UNSAFE (X appears in legitimate tickers)
+
+---
+
+### LESSON 9: RangeStabilityFilter Must Match Market Conditions
+
+**What happened:** Set `max_rate_of_change: 0.35` (35% max move over 10 days) to exclude extreme pumps.
+
+**Unintended consequence:** In a bear market with high volatility, many legitimate coins (AAVE +39%, WLD +59%, MNT +40%) exceed 35% moves due to normal bear market volatility. Filter eliminated most of the pairlist.
+
+**Fix:** Raised to 0.70 (70% max). At 70%, only genuinely extreme pumps/dumps are excluded while normal bear market volatility is acceptable.
+
+**Rule established:** RangeStabilityFilter thresholds must be calibrated to current market regime:
+- Bull market (low volatility): max 0.50 is reasonable
+- Bear market (high volatility): max 0.70 needed
+- Consider making this dynamic or checking after each filter change with `freqtrade test-pairlist`
+
+**Always verify pair count after any filter change:** `docker compose run --rm freqtrade test-pairlist --config user_data/config.json`
+Minimum viable pair count for BinHV45_Regime_5m: 15 pairs.
+Ideal: 30–40 pairs.
+
+---
+
+### LESSON 10: 16 Pairs Is Acceptable in Bear Market
+
+**Current state (June 27, 2026):**
+Active pairs: BTC, ETH, HYPE, SOL, XRP, AAVE, WLD, MNT, INJ, ENA, AVAX, ASTER, LIT, LINK, NEAR, DOGE
+
+16 quality pairs in a bear market is better than 40 noisy pairs. BinHV45's signal fires on genuine capitulation — with 16 pairs and high filters, every signal that does fire is higher confidence.
+
+Expected trade frequency at 16 pairs: ~0.35/day (roughly 1 trade every 3 days).
+This is low but acceptable during dry-run validation. Will improve when market stabilises and more pairs pass the filters.
