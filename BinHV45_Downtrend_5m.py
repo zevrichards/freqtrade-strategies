@@ -1,18 +1,7 @@
-# BinHV45_Regime_5m.py - v3
-#
-# CHANGES FROM v2:
-#   - REMOVED RSI divergence check — too rare on 5m, blocked 99% of valid entries
-#     Backtest showed identical results (3 trades) with or without it.
-#     RSI divergence is valid on 4h+ but not useful as a 5m gate.
-#   - KEPT 30m downtrend filter — confirmed working, 314 trades vs 113 on raw BinHV45
-#   - TIGHTENED stoploss: -5% → -3% (each loss costs less, break-even drops to ~60%)
-#   - RAISED ROI target: +1.25% → +2% (each win earns more)
-#   - Net result: backtest +22.53% in 6 months pure bear market, 314 trades, 74.5% win rate
-#
-# FILTER SUMMARY:
-#   1h  — market regime: blocks entries in confirmed BEAR (death cross + RSI<50 + ADX>20)
-#   30m — pair downtrend: blocks if pair making lower lows on 30m (EMA20 < EMA50 + RSI<45)
-#   5m  — BinHV45 capitulation: bb40 delta + closedelta + tail + volume checks
+# BinHV45_Downtrend_5m.py - BACKTEST ONLY
+# Tests: downtrend filter ONLY (no RSI divergence)
+# Parameters: -3% stoploss, +2% ROI
+# Purpose: isolate how much the 30m downtrend filter contributes
 
 import sys, os
 sys.path.insert(0, os.path.dirname(__file__))
@@ -23,32 +12,21 @@ import pandas_ta as pta
 import pandas as pd
 
 
-class BinHV45_Regime_5m(IStrategy):
+class BinHV45_Downtrend_5m(IStrategy):
 
-    minimal_roi = {"0": 0.02}    # +2% (was 1.25%)
-    stoploss = -0.03              # -3% (was -5%)
+    minimal_roi = {"0": 0.02}
+    stoploss = -0.03
     timeframe = "5m"
     startup_candle_count: int = 250
 
     @property
     def protections(self):
         return [
-            {
-                "method": "CooldownPeriod",
-                "stop_duration_candles": 12
-            },
-            {
-                "method": "StoplossGuard",
-                "lookback_period_candles": 24,
-                "trade_limit": 2,
-                "stop_duration_candles": 48,
-                "only_per_pair": True
-            }
+            {"method": "CooldownPeriod", "stop_duration_candles": 12},
+            {"method": "StoplossGuard", "lookback_period_candles": 24,
+             "trade_limit": 2, "stop_duration_candles": 48, "only_per_pair": True}
         ]
 
-    # ------------------------------------------------------------------ #
-    # 1h INFORMER — market-level bear detection                            #
-    # ------------------------------------------------------------------ #
     @informative('1h')
     def populate_indicators_1h(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
         dataframe["ema_50"]  = pta.ema(dataframe["close"], length=50)
@@ -67,9 +45,6 @@ class BinHV45_Regime_5m(IStrategy):
         ).astype(int)
         return dataframe
 
-    # ------------------------------------------------------------------ #
-    # 30m INFORMER — pair-level downtrend detection                       #
-    # ------------------------------------------------------------------ #
     @informative('30m')
     def populate_indicators_30m(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
         dataframe["ema_20"] = pta.ema(dataframe["close"], length=20)
@@ -82,9 +57,6 @@ class BinHV45_Regime_5m(IStrategy):
         ).astype(int)
         return dataframe
 
-    # ------------------------------------------------------------------ #
-    # 5m INDICATORS — BinHV45 capitulation signals                        #
-    # ------------------------------------------------------------------ #
     def populate_indicators(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
         bb40 = pta.bbands(dataframe["close"], length=40, std=2.0)
         if bb40 is not None:
@@ -94,18 +66,16 @@ class BinHV45_Regime_5m(IStrategy):
         dataframe["closedelta"]       = (dataframe["close"] - dataframe["close"].shift(1)).abs()
         dataframe["tail"]             = (dataframe["close"] - dataframe["low"]).abs()
         dataframe["volume_mean_slow"] = dataframe["volume"].rolling(window=30).mean()
+        dataframe["rsi"]              = pta.rsi(dataframe["close"], length=14)
         return dataframe
 
-    # ------------------------------------------------------------------ #
-    # ENTRY                                                                #
-    # ------------------------------------------------------------------ #
     def populate_entry_trend(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
         not_bear = dataframe["1h_is_bear"] == 0 if "1h_is_bear" in dataframe.columns \
                    else pd.Series(True, index=dataframe.index)
-
         not_downtrend = dataframe["30m_in_downtrend"] == 0 if "30m_in_downtrend" in dataframe.columns \
                         else pd.Series(True, index=dataframe.index)
 
+        # NO RSI divergence check here — downtrend filter only
         dataframe.loc[
             (
                 not_bear &
@@ -124,9 +94,6 @@ class BinHV45_Regime_5m(IStrategy):
         ] = 1
         return dataframe
 
-    # ------------------------------------------------------------------ #
-    # EXIT — ROI and stoploss handle everything                            #
-    # ------------------------------------------------------------------ #
     def populate_exit_trend(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
         dataframe.loc[:, "exit_long"] = 0
         return dataframe

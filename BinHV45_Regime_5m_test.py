@@ -1,18 +1,30 @@
-# BinHV45_Regime_5m.py - v3
+# BinHV45_Regime_5m.py - v2
 #
-# CHANGES FROM v2:
-#   - REMOVED RSI divergence check — too rare on 5m, blocked 99% of valid entries
-#     Backtest showed identical results (3 trades) with or without it.
-#     RSI divergence is valid on 4h+ but not useful as a 5m gate.
-#   - KEPT 30m downtrend filter — confirmed working, 314 trades vs 113 on raw BinHV45
-#   - TIGHTENED stoploss: -5% → -3% (each loss costs less, break-even drops to ~60%)
-#   - RAISED ROI target: +1.25% → +2% (each win earns more)
-#   - Net result: backtest +22.53% in 6 months pure bear market, 314 trades, 74.5% win rate
+# IMPROVEMENTS OVER v1:
 #
-# FILTER SUMMARY:
-#   1h  — market regime: blocks entries in confirmed BEAR (death cross + RSI<50 + ADX>20)
-#   30m — pair downtrend: blocks if pair making lower lows on 30m (EMA20 < EMA50 + RSI<45)
-#   5m  — BinHV45 capitulation: bb40 delta + closedelta + tail + volume checks
+# 1. DOWNTREND vs CAPITULATION FILTER (30m informer)
+#    A 30m informer checks the individual pair's short-term trend.
+#    If the pair itself is making lower lows on 30m, we skip entry —
+#    that's a downtrend, not capitulation. Capitulation needs a ranging
+#    or mild uptrend context before the sharp drop.
+#    Specifically blocks entry when ALL of:
+#      - 30m close < 30m EMA20 (below short-term average)
+#      - 30m EMA20 < 30m EMA50 (short-term average falling)
+#      - 30m RSI < 45 (momentum already weak — not oversold bounce setup)
+#
+# 2. RSI DIVERGENCE CHECK (5m)
+#    In a real capitulation, price makes a new low but RSI doesn't.
+#    In a downtrend continuation, both make new lows together.
+#    We check that RSI at the entry candle is HIGHER than RSI 3 candles
+#    ago even though price is lower — bullish divergence signal.
+#
+# 3. COOLDOWN AFTER STOP LOSS (handled via stoploss_on_exchange + protection)
+#    Uses Freqtrade's built-in CooldownPeriod protection — after any stop
+#    loss on a pair, that pair is blocked for 12 candles (1 hour on 5m).
+#    This directly fixes the POPCAT re-entry problem.
+#
+# 4. EXPANDED BLACKLIST (in config.json)
+#    POPCAT, PUMP, IP, HOODX, XPL added to blacklist after live analysis.
 
 import sys, os
 sys.path.insert(0, os.path.dirname(__file__))
@@ -23,21 +35,26 @@ import pandas_ta as pta
 import pandas as pd
 
 
-class BinHV45_Regime_5m(IStrategy):
+class BinHV45_Regime_5m_test(IStrategy):
 
-    minimal_roi = {"0": 0.02}    # +2% (was 1.25%)
-    stoploss = -0.03              # -3% (was -5%)
+    minimal_roi = {"0": 0.02}   # +2% ROI (was 1.25%)
+    stoploss = -0.03            # -3% stop loss (was -5%)
     timeframe = "5m"
     startup_candle_count: int = 250
 
+    # ------------------------------------------------------------------ #
+    # PROTECTIONS — cooldown after stop loss                               #
+    # ------------------------------------------------------------------ #
     @property
     def protections(self):
         return [
             {
+                # Block re-entry on a pair for 12 candles (1h) after stop loss
                 "method": "CooldownPeriod",
                 "stop_duration_candles": 12
             },
             {
+                # If 3 of the last 4 trades on any pair were losses, block for 4h
                 "method": "StoplossGuard",
                 "lookback_period_candles": 24,
                 "trade_limit": 2,
@@ -47,24 +64,27 @@ class BinHV45_Regime_5m(IStrategy):
         ]
 
     # ------------------------------------------------------------------ #
-    # 1h INFORMER — market-level bear detection                            #
+    # 1h INFORMER — market regime (bear vs not-bear)                      #
     # ------------------------------------------------------------------ #
     @informative('1h')
     def populate_indicators_1h(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
         dataframe["ema_50"]  = pta.ema(dataframe["close"], length=50)
         dataframe["ema_200"] = pta.ema(dataframe["close"], length=200)
         dataframe["rsi"]     = pta.rsi(dataframe["close"], length=14)
+
         adx = pta.adx(dataframe["high"], dataframe["low"], dataframe["close"], length=14)
         if adx is not None and "ADX_14" in adx.columns:
             dataframe["adx"] = adx["ADX_14"]
         else:
             dataframe["adx"] = 0
+
         dataframe["is_bear"] = (
             (dataframe["close"] < dataframe["ema_200"]) &
             (dataframe["ema_50"] < dataframe["ema_200"]) &
             (dataframe["rsi"] < 50) &
             (dataframe["adx"] > 20)
         ).astype(int)
+
         return dataframe
 
     # ------------------------------------------------------------------ #
@@ -75,15 +95,20 @@ class BinHV45_Regime_5m(IStrategy):
         dataframe["ema_20"] = pta.ema(dataframe["close"], length=20)
         dataframe["ema_50"] = pta.ema(dataframe["close"], length=50)
         dataframe["rsi"]    = pta.rsi(dataframe["close"], length=14)
+
+        # in_downtrend = 1 means the pair itself is in a short-term downtrend
+        # This catches POPCAT-style situations where the coin keeps making
+        # lower lows on the 30m even as 5m shows "capitulation" signals
         dataframe["in_downtrend"] = (
             (dataframe["close"] < dataframe["ema_20"]) &
             (dataframe["ema_20"] < dataframe["ema_50"]) &
             (dataframe["rsi"] < 45)
         ).astype(int)
+
         return dataframe
 
     # ------------------------------------------------------------------ #
-    # 5m INDICATORS — BinHV45 capitulation signals                        #
+    # 5m INDICATORS                                                        #
     # ------------------------------------------------------------------ #
     def populate_indicators(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
         bb40 = pta.bbands(dataframe["close"], length=40, std=2.0)
@@ -91,25 +116,45 @@ class BinHV45_Regime_5m(IStrategy):
             dataframe["bb40_lower"] = bb40["BBL_40_2.0"]
             dataframe["bb40_mid"]   = bb40["BBM_40_2.0"]
             dataframe["bb40_delta"] = (bb40["BBM_40_2.0"] - bb40["BBL_40_2.0"]).abs()
+
         dataframe["closedelta"]       = (dataframe["close"] - dataframe["close"].shift(1)).abs()
         dataframe["tail"]             = (dataframe["close"] - dataframe["low"]).abs()
         dataframe["volume_mean_slow"] = dataframe["volume"].rolling(window=30).mean()
+
+        # RSI for divergence check
+        dataframe["rsi"] = pta.rsi(dataframe["close"], length=14)
+
         return dataframe
 
     # ------------------------------------------------------------------ #
     # ENTRY                                                                #
     # ------------------------------------------------------------------ #
     def populate_entry_trend(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
-        not_bear = dataframe["1h_is_bear"] == 0 if "1h_is_bear" in dataframe.columns \
-                   else pd.Series(True, index=dataframe.index)
 
-        not_downtrend = dataframe["30m_in_downtrend"] == 0 if "30m_in_downtrend" in dataframe.columns \
-                        else pd.Series(True, index=dataframe.index)
+        # 1h: not in confirmed bear market
+        if "1h_is_bear" in dataframe.columns:
+            not_bear = dataframe["1h_is_bear"] == 0
+        else:
+            not_bear = pd.Series(True, index=dataframe.index)
+
+        # 30m: pair not in its own short-term downtrend
+        if "30m_in_downtrend" in dataframe.columns:
+            not_downtrend = dataframe["30m_in_downtrend"] == 0
+        else:
+            not_downtrend = pd.Series(True, index=dataframe.index)
+
+        # RSI bullish divergence: price lower than 3 candles ago
+        # but RSI higher than 3 candles ago — classic capitulation signal
+        rsi_divergence = (
+            (dataframe["close"] < dataframe["close"].shift(3)) &
+            (dataframe["rsi"] > dataframe["rsi"].shift(3))
+        )
 
         dataframe.loc[
             (
                 not_bear &
                 not_downtrend &
+                rsi_divergence &
                 (dataframe["bb40_delta"] > 0) &
                 (dataframe["bb40_lower"].shift(1) > 0) &
                 (dataframe["bb40_delta"] > dataframe["close"] * 0.007) &
@@ -122,10 +167,11 @@ class BinHV45_Regime_5m(IStrategy):
             ),
             "enter_long",
         ] = 1
+
         return dataframe
 
     # ------------------------------------------------------------------ #
-    # EXIT — ROI and stoploss handle everything                            #
+    # EXIT                                                                 #
     # ------------------------------------------------------------------ #
     def populate_exit_trend(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
         dataframe.loc[:, "exit_long"] = 0
