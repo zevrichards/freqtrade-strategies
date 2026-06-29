@@ -153,3 +153,41 @@ BinHV45_Regime_5m backtest showed +13.83% vs -0.7% for EMAcross_4h.
 | MeanReversion_4h.py | v3 | Jun 2026 |
 | BreakoutDetector_1d.py | v2 | Jun 2026 |
 | regime_filter.py | v2 | Jun 2026 |
+
+---
+
+## [2026-06-29] Stop Loss Slippage Investigation + stoploss_on_exchange
+
+### What happened
+MANTA/USDT stop loss fired at -4.23% instead of the configured -3%.
+Investigation revealed ALL 7 stop losses exceeded -3% (range: -4.0% to -6.2%).
+
+### Root cause: candle-close stop loss checking
+Freqtrade checks stop loss at candle CLOSE, not tick-by-tick.
+On 5m candles, price can crash through the -3% level mid-candle.
+By the time the candle closes, the loss is already deeper than the target.
+This is called "gap slippage" — inherent to candle-based stops.
+
+### Fix applied: stoploss_on_exchange
+Added to config.json:
+  "stoploss_on_exchange": true,
+  "stoploss_on_exchange_interval": 60
+
+This places a native stop-limit order directly on Bybit when a trade opens.
+Bybit monitors it tick-by-tick and closes at exactly -3%.
+
+NOTE: stoploss_on_exchange only works in LIVE trading, not dry-run.
+Dry-run will still show slippage. Effect will be real when going live.
+
+### MANTA blacklisted
+MANTA/USDT added to blacklist after -4.23% stop loss (Jun 28).
+Low-cap L2 token — prone to sharp gap moves on 5m.
+
+### Current overall stats (29 closed trades)
+- Net P&L: -$15.51
+- Win rate: 75.9% (22 wins / 7 losses)
+- ROI exits: 22 trades, +$154.74, avg +1.49%
+- Stop losses: 7 trades, -$170.25, avg -5.09% (all exceeded -3% due to slippage)
+- Break-even at current parameters (-3%/+2%): 60% win rate needed
+- Current 75.9% is above break-even but stop slippage is pushing actual losses higher
+

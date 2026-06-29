@@ -119,6 +119,7 @@ To actually activate these, add to pair_whitelist in config.json.
 | GMX/USDT | Low quality | DeFi perps — low volume on spot | Jun 26, 2026 |
 | SNX/USDT | Low quality | Synthetix — low spot volume | Jun 26, 2026 |
 | DYDX/USDT | Low quality | DeFi perps — low spot volume | Jun 26, 2026 |
+| MANTA/USDT | Stop loss | -4.23% loss Jun 28. Low-cap L2 token — gap slippage risk | Jun 28, 2026 |
 | CC/USDT | Unknown | Unrecognised ticker, failed manual review | Jun 27, 2026 |
 | PIEVERSE/USDT | Low quality | Gaming/metaverse token, very low profile | Jun 27, 2026 |
 | ICNT/USDT | Unknown | Unrecognised ticker | Jun 27, 2026 |

@@ -307,3 +307,40 @@ we would have assumed "both filters" were working together and kept both.
 **Rule established:** When adding multiple filters to a strategy, always backtest
 each filter in isolation before combining. This takes 30 minutes and prevents
 weeks of dry-run data being wasted on an over-filtered strategy.
+
+---
+
+### LESSON 14: Candle-Close Stop Losses Always Overshoot on 5m
+
+**What we observed:** Every stop loss exceeded the -3% target. Range: -4.0% to -6.2%.
+MANTA stopped at -4.23%, POPCAT at -5.19% and -6.16%, PUMP at -5.45%.
+
+**Why it happens:**
+Freqtrade checks the stop loss condition at candle close, not on every tick.
+On 5m candles, a sharp move can take price from -2% to -6% in seconds —
+all within a single candle. By the time the candle closes and Freqtrade checks,
+the stop level has been blown through by 1-3%.
+
+This is not a Freqtrade bug — it's a fundamental property of candle-based simulation.
+Backtests assume perfect fills at the stop level, but live trading has slippage.
+This means our backtest results are optimistic — real live results will show
+slightly worse stop losses than backtest predictions.
+
+**Fix: stoploss_on_exchange = true**
+Places a native stop-limit order on Bybit at trade open.
+Bybit monitors price tick-by-tick and fills at exactly -3%.
+Only works in live trading (not dry-run).
+Added to config.json: "stoploss_on_exchange": true, "stoploss_on_exchange_interval": 60
+
+**Impact on backtest interpretation:**
+When backtesting shows -3% stop losses, real live stops will average -4% to -5%
+without stoploss_on_exchange. Always factor in ~1-2% slippage on stop losses
+when evaluating backtest profitability. Our +22.53% backtest assumed perfect
+-3% fills — real performance without exchange stops would be lower.
+
+**Rule established:**
+Always enable stoploss_on_exchange for 5m strategies before going live.
+For dry-run, accept that stop losses will show slippage — this is expected.
+The backtest break-even win rate should be adjusted upward by ~5% to account
+for real-world slippage on stops.
+
